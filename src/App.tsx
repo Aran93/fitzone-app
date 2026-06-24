@@ -1,6 +1,6 @@
 import { RoleProvider, useRole } from './context/RoleContext';
 import { AppProvider, useApp } from './context/AppContext';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import './App.css';
 
 const Icons = {
@@ -222,10 +222,10 @@ function ReceptionDashboard() {
   );
 }
 
-// ===== 2. ADMIN (Lisa) =====
+// ===== 2. ADMIN (Lisa) MIT WARTESLISTEN-TAB =====
 function AdminDashboard() {
-  const { members, setMembers, updateMember, courses, addCourse, updateCourse, deleteCourse, trainers, updateTrainer } = useApp();
-  const [activeTab, setActiveTab] = useState<'mitglieder' | 'kurse' | 'mitarbeiter' | 'statistik'>('mitglieder');
+ const { members, setMembers, updateMember, courses, addCourse, updateCourse, deleteCourse, trainers, updateTrainer } = useApp();
+  const [activeTab, setActiveTab] = useState<'mitglieder' | 'kurse' | 'wartelisten' | 'mitarbeiter' | 'statistik'>('mitglieder');
   const [editModalId, setEditModalId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [blockModal, setBlockModal] = useState<{show: boolean, memberId: string, memberName: string} | null>(null);
@@ -247,6 +247,38 @@ function AdminDashboard() {
     const d = new Date(dateStr);
     return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
+  
+  const calculateEndTime = (startTime: string, duration: number): string => {
+    if (!startTime) return '';
+    const [h, m] = startTime.split(':').map(Number);
+    const endMin = h * 60 + m + (duration * 60);
+    const endH = Math.floor(endMin / 60) % 24;
+    const endM = endMin % 60;
+    return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+  };
+
+  // Zeit bis Ablauf (1h-Frist)
+  const getTimeLeft = (nachrueckZeit: number): string => {
+    const elapsed = Date.now() - nachrueckZeit;
+    const remaining = 60 * 60 * 1000 - elapsed;
+    if (remaining <= 0) return 'Abgelaufen';
+    const minutes = Math.floor(remaining / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  // Warteliste-Statistiken
+  const getAllWaitlists = () => {
+    return courses.filter(c => c.waitlist && c.waitlist.length > 0 && c.status !== 'Storniert').map(c => {
+      const activeEntries = c.waitlist.filter(w => w.status === 'waiting' || w.status === 'nachgerueckt');
+      return {
+        course: c,
+        entries: activeEntries,
+        hasNachrueck: activeEntries.some(w => w.status === 'nachgerueckt')
+      };
+    }).filter(x => x.entries.length > 0);
+  };
+  
   const openEdit = (member: any) => { setEditModalId(member.id); setEditForm({ ...member }); };
   const saveEdit = () => { updateMember(editModalId!, editForm); setEditModalId(null); };
   const deleteMemberFn = (id: string, name: string) => {
@@ -280,6 +312,8 @@ function AdminDashboard() {
     alert('✅ Kurs geplant!');
     setNewCourseForm({ title: '', typ: 'Yoga', datum: new Date().toISOString().split('T')[0], time: '09:00', room: 'Großer Kursraum', trainer: 'Lisa M.', dauer: 1 });
   };
+
+  
 
   const counts = {
     green: members.filter(m => m.status === 'AKTIV').length,
@@ -327,6 +361,10 @@ function AdminDashboard() {
     });
   };
 
+  const waitlists = getAllWaitlists();
+  const totalWaitlistEntries = waitlists.reduce((sum, w) => sum + w.entries.length, 0);
+  const coursesWithNachrueck = waitlists.filter(w => w.hasNachrueck).length;
+
   return (
     <div>
       <h1 className="page-title">Admin-Dashboard 👑</h1>
@@ -372,7 +410,22 @@ function AdminDashboard() {
       <div className="tabs-container" style={{marginTop: 24}}>
         <button className={`tab-btn ${activeTab === 'mitglieder' ? 'active' : ''}`} onClick={() => setActiveTab('mitglieder')}>👥 Mitglieder</button>
         <button className={`tab-btn ${activeTab === 'kurse' ? 'active' : ''}`} onClick={() => setActiveTab('kurse')}>📅 Kurse</button>
-        <button className={`tab-btn ${activeTab === 'mitarbeiter' ? 'active' : ''}`} onClick={() => setActiveTab('mitarbeiter')}>💼 Mitarbeiter & Finanzen</button>
+        <button className={`tab-btn ${activeTab === 'wartelisten' ? 'active' : ''}`} onClick={() => setActiveTab('wartelisten')} style={{position: 'relative'}}>
+          📋 Wartelisten
+          {totalWaitlistEntries > 0 && (
+            <span style={{
+              marginLeft: 6, background: '#ef4444', color: 'white',
+              padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700
+            }}>{totalWaitlistEntries}</span>
+          )}
+          {coursesWithNachrueck > 0 && (
+            <span style={{
+              marginLeft: 4, background: '#f59e0b', color: 'white',
+              padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700
+            }}>⏰ {coursesWithNachrueck}</span>
+          )}
+        </button>
+        <button className={`tab-btn ${activeTab === 'mitarbeiter' ? 'active' : ''}`} onClick={() => setActiveTab('mitarbeiter')}>💼 Mitarbeiter</button>
         <button className={`tab-btn ${activeTab === 'statistik' ? 'active' : ''}`} onClick={() => setActiveTab('statistik')}>📊 Statistik</button>
       </div>
 
@@ -414,7 +467,7 @@ function AdminDashboard() {
                                     updates.sperr_bis = undefined;
                                   }
                                   updateMember(m.id, updates);
-                                  alert(`✅ ${m.vorname} wurde zurückgesetzt${m.status === 'GESPERRT' ? ' und entsperrt' : ''}!`);
+                                  alert(`✅ ${m.vorname} wurde zurückgesetzt!`);
                                 }
                               }} style={{padding: '6px 12px', background: '#eef2ff', color: '#4f46e5', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer'}}>🔄 Zurücksetzen</button>
                               {isGesperrt && <button onClick={() => handleUnblock(m.id)} className="btn-unblock">🔓 Entsperren</button>}
@@ -439,15 +492,9 @@ function AdminDashboard() {
                             </div>
                           </div>
                           <button onClick={() => {
-                            if (confirm(`Gebühr von ${m.vorname} als bezahlt markieren?\n\n${m.status === 'GESPERRT' ? '⚠️ Das Mitglied wird auch entsperrt!' : ''}`)) {
-                              const updates: any = { offeneGebuehren: 0 };
-                              if (m.status === 'GESPERRT') {
-                                updates.status = 'AKTIV';
-                                updates.sperr_begruendung = undefined;
-                                updates.sperr_bis = undefined;
-                              }
-                              updateMember(m.id, updates);
-                              alert(`✅ Gebühr von ${m.vorname} wurde als bezahlt markiert${m.status === 'GESPERRT' ? ' und Mitglied entsperrt' : ''}!`);
+                            if (confirm(`Gebühr von ${m.vorname} als bezahlt markieren?`)) {
+                              updateMember(m.id, { offeneGebuehren: 0 });
+                              alert(`✅ Gebühr als bezahlt markiert!`);
                             }
                           }} style={{padding: '6px 12px', background: '#10b981', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer'}}>✓ Als bezahlt markieren</button>
                         </div>
@@ -530,10 +577,8 @@ function AdminDashboard() {
                   </select>
                 </div>
                 <div className="form-group"><label className="form-label">📅 Datum</label><input className="form-input" type="date" required value={newCourseForm.datum} onChange={e => setNewCourseForm({...newCourseForm, datum: e.target.value})} /></div>
-                <div className="form-group"><label className="form-label">🕐 Zeit</label>
-                  <select className="form-input" value={newCourseForm.time} onChange={e => setNewCourseForm({...newCourseForm, time: e.target.value})}>
-                    <option value="09:00">09:00</option><option value="10:00">10:00</option><option value="17:00">17:00</option><option value="18:00">18:00</option><option value="19:00">19:00</option>
-                  </select>
+                <div className="form-group"><label className="form-label">🕐 Startzeit</label>
+                  <input className="form-input" type="time" required value={newCourseForm.time} onChange={e => setNewCourseForm({...newCourseForm, time: e.target.value})} />
                 </div>
               </div>
               <div className="form-row">
@@ -547,12 +592,17 @@ function AdminDashboard() {
                     {trainers.filter(t => t.rolle === 'Trainer').map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                   </select>
                 </div>
-                <div className="form-group"><label className="form-label">⏱️ Dauer (Stunden)</label>
+                <div className="form-group"><label className="form-label">⏱️ Dauer</label>
                   <select className="form-input" value={newCourseForm.dauer} onChange={e => setNewCourseForm({...newCourseForm, dauer: parseFloat(e.target.value)})}>
                     <option value="0.5">0.5 h</option><option value="1">1 h</option><option value="1.5">1.5 h</option><option value="2">2 h</option>
                   </select>
                 </div>
               </div>
+              {newCourseForm.time && newCourseForm.dauer && (
+                <div style={{background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13, color: '#1e40af'}}>
+                  <strong>⏰ Zeitfenster:</strong> Start: <strong>{newCourseForm.time}</strong> → Ende: <strong>{calculateEndTime(newCourseForm.time, newCourseForm.dauer)}</strong>
+                </div>
+              )}
               <button type="submit" className="btn-primary" style={{marginTop: 12}}>Kurs speichern</button>
             </form>
           </div>
@@ -565,14 +615,20 @@ function AdminDashboard() {
                 let ampelText = 'Gut';
                 if (auslastung < 40) { ampelFarbe = '#ef4444'; ampelText = 'Leer'; }
                 else if (auslastung < 75) { ampelFarbe = '#f59e0b'; ampelText = 'Mittel'; }
+                const activeWaitlist = c.waitlist.filter(w => w.status === 'waiting' || w.status === 'nachgerueckt');
                 return (
                   <div key={c.id} className="member-item" style={{background: c.status === 'Storniert' ? '#fef2f2' : 'white', opacity: c.status === 'Storniert' ? 0.7 : 1}}>
                     <div style={{flex: 1}}>
                       <div className="member-name">
                         {c.title} <span className="course-type-badge">{c.typ}</span>
                         {c.status === 'Storniert' && <span style={{marginLeft: 8, color: '#dc2626', fontSize: 12}}>❌ Storniert</span>}
+                        {activeWaitlist.length > 0 && (
+                          <span style={{marginLeft: 8, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700}}>
+                            📋 {activeWaitlist.length} auf Warteliste
+                          </span>
+                        )}
                       </div>
-                      <div className="member-info">📅 {formatDate(c.datum)} • 🕐 {c.time} • 🏢 {c.room} • 👨‍🏫 {c.trainer}</div>
+                      <div className="member-info">📅 {formatDate(c.datum)} • 🕐 {c.time} - {calculateEndTime(c.time, c.dauerStunden || 1)} • 🏢 {c.room} • 👨‍🏫 {c.trainer}</div>
                       <div className="member-info" style={{display: 'flex', alignItems: 'center', gap: 12, marginTop: 4}}>
                         <span>⏱️ {c.dauerStunden || 1}h</span>
                         <span style={{display: 'inline-flex', alignItems: 'center', gap: 6}}>
@@ -587,14 +643,6 @@ function AdminDashboard() {
                         <span style={{fontSize: 18, fontWeight: 800, color: '#0f172a', minWidth: 60, textAlign: 'center'}}>{c.booked} / {c.max}</span>
                         <button onClick={() => c.booked < c.max && updateCourse(c.id, { booked: c.booked + 1 })} disabled={c.booked >= c.max}
                           style={{width: 28, height: 28, borderRadius: '50%', background: c.booked >= c.max ? '#e2e8f0' : '#ecfdf5', color: c.booked >= c.max ? '#94a3b8' : '#10b981', border: 'none', fontWeight: 700, fontSize: 16, cursor: c.booked >= c.max ? 'not-allowed' : 'pointer'}}>+</button>
-                        <button onClick={() => {
-                          const neueZahl = prompt(`Neue Teilnehmerzahl für "${c.title}" (max ${c.max}):`, c.booked.toString());
-                          if (neueZahl !== null) {
-                            const zahl = parseInt(neueZahl);
-                            if (!isNaN(zahl) && zahl >= 0 && zahl <= c.max) updateCourse(c.id, { booked: zahl });
-                            else alert(`⚠️ Bitte eine Zahl zwischen 0 und ${c.max} eingeben!`);
-                          }
-                        }} style={{padding: '4px 10px', background: '#eef2ff', color: '#4f46e5', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer'}}>✏️ Setzen</button>
                       </div>
                     </div>
                     <div style={{display: 'flex', gap: 8, flexWrap: 'wrap'}}>
@@ -608,6 +656,196 @@ function AdminDashboard() {
             </div>
           </div>
         </>
+      )}
+
+      {/* NEUER TAB: WARTESLISTEN */}
+      {activeTab === 'wartelisten' && (
+        <div className="admin-section">
+          <h2 className="admin-section-title">📋 Wartelisten-Übersicht (Spec 4.2)</h2>
+          
+          <div style={{background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: 16, marginBottom: 20, fontSize: 13, color: '#1e40af'}}>
+            <strong>📋 Spec 4.2 - Wartelisten-Regelung:</strong><br/>
+            • Max 5 Plätze pro Kurs<br/>
+            • First-Come-First-Served<br/>
+            • Bei Stornierung: Erster auf Warteliste rückt nach<br/>
+            • Nachgerücktes Mitglied hat 1 Stunde Zeit zu bestätigen<br/>
+            • Bei Ablauf: Nächster auf der Warteliste
+          </div>
+
+          <div className="grid-3" style={{marginBottom: 24}}>
+            <div className="profile-card">
+              <div className="profile-label">Kurse mit Warteliste</div>
+              <div className="profile-value" style={{color: '#f59e0b'}}>{waitlists.length}</div>
+            </div>
+            <div className="profile-card">
+              <div className="profile-label">Personen auf Wartelisten</div>
+              <div className="profile-value" style={{color: '#4f46e5'}}>{totalWaitlistEntries}</div>
+            </div>
+            <div className="profile-card">
+              <div className="profile-label">Warten auf Bestätigung</div>
+              <div className="profile-value" style={{color: '#dc2626'}}>{coursesWithNachrueck}</div>
+            </div>
+          </div>
+
+          {waitlists.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-title">Keine aktiven Wartelisten</div>
+              <p style={{color: '#64748b', marginTop: 8}}>Alle Kurse haben noch freie Plätze oder keine Wartelisten.</p>
+            </div>
+          ) : (
+            <div style={{display: 'flex', flexDirection: 'column', gap: 20}}>
+              {waitlists.map(({course, entries, hasNachrueck}) => (
+                <div key={course.id} style={{
+                  background: hasNachrueck ? '#fffbeb' : 'white',
+                  border: hasNachrueck ? '2px solid #f59e0b' : '1px solid #e2e8f0',
+                  borderRadius: 16, padding: 20
+                }}>
+                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16}}>
+                    <div>
+                      <h3 style={{fontSize: 20, fontWeight: 700, margin: 0}}>
+                        {course.title} <span className="course-type-badge">{course.typ}</span>
+                      </h3>
+                      <div style={{fontSize: 14, color: '#64748b', marginTop: 4}}>
+                        📅 {formatDate(course.datum)} • 🕐 {course.time} - {calculateEndTime(course.time, course.dauerStunden || 1)}
+                      </div>
+                      <div style={{fontSize: 13, color: '#64748b', marginTop: 2}}>
+                        🏢 {course.room} • 👨‍🏫 {course.trainer} • 👥 {course.booked}/{course.max} gebucht
+                      </div>
+                    </div>
+                    <div style={{textAlign: 'right'}}>
+                      <div style={{
+                        background: '#fef3c7', color: '#92400e',
+                        padding: '8px 16px', borderRadius: 20,
+                        fontWeight: 700, fontSize: 14
+                      }}>
+                        📋 {entries.length}/5
+                      </div>
+                      {hasNachrueck && (
+                        <div style={{
+                          marginTop: 6, background: '#dc2626', color: 'white',
+                          padding: '4px 12px', borderRadius: 12,
+                          fontSize: 11, fontWeight: 700
+                        }}>
+                          ⏰ Wartet auf Bestätigung
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{display: 'flex', flexDirection: 'column', gap: 8}}>
+                    {entries.map((entry, idx) => {
+                      const member = members.find(m => m.id === entry.memberId);
+                      if (!member) return null;
+                      const isNachgerueckt = entry.status === 'nachgerueckt';
+                      return (
+                        <div key={entry.memberId} style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: 12, background: isNachgerueckt ? '#fef3c7' : '#f8fafc',
+                          border: isNachgerueckt ? '2px solid #f59e0b' : '1px solid #e2e8f0',
+                          borderRadius: 10
+                        }}>
+                          <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+                            <div style={{
+                              width: 36, height: 36, borderRadius: '50%',
+                              background: isNachgerueckt ? '#f59e0b' : '#4f46e5',
+                              color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontWeight: 800, fontSize: 16
+                            }}>
+                              {idx + 1}
+                            </div>
+                            <div className="member-avatar" style={{width: 40, height: 40}}>
+                              {member.foto ? <img src={member.foto} alt="" /> : `${member.vorname.charAt(0)}${member.nachname.charAt(0)}`}
+                            </div>
+                            <div>
+                              <div style={{fontWeight: 700}}>{member.vorname} {member.nachname}</div>
+                              <div style={{fontSize: 12, color: '#64748b'}}>
+                                {member.tarif}
+                                {isNachgerueckt && entry.nachrueckZeit && (
+                                  <span style={{marginLeft: 8, color: '#dc2626', fontWeight: 700}}>
+                                    ⏰ Noch {getTimeLeft(entry.nachrueckZeit)}
+                                  </span>
+                                )}
+                                {!isNachgerueckt && (
+                                  <span style={{marginLeft: 8}}>• Seit {new Date(entry.timestamp).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'})}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{display: 'flex', gap: 8, alignItems: 'center'}}>
+                            {isNachgerueckt ? (
+                              <span style={{
+                                background: '#dc2626', color: 'white',
+                                padding: '6px 12px', borderRadius: 8,
+                                fontSize: 12, fontWeight: 700
+                              }}>
+                                ⏰ Wartet auf Bestätigung
+                              </span>
+                            ) : (
+                              <>
+                                <span className="waitlist-badge">#{idx + 1} Wartend</span>
+                                <button 
+                                  onClick={() => {
+                                    if (confirm(`Manuell nachrücken?\n\n${member.vorname} ${member.nachname} erhält 1h Zeit zur Bestätigung.`)) {
+                                      // Direkt nachrücken: Status auf 'nachgerueckt'
+                                      const newWaitlist = course.waitlist.map(w => 
+                                        w.memberId === entry.memberId 
+                                          ? {...w, status: 'nachgerueckt' as const, nachrueckZeit: Date.now()}
+                                          : w
+                                      );
+                                      updateCourse(course.id, { waitlist: newWaitlist });
+                                      alert(`✅ ${member.vorname} wurde nachgerückt!`);
+                                    }
+                                  }}
+                                  style={{
+                                    padding: '6px 12px', background: '#4f46e5', color: 'white',
+                                    border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer'
+                                  }}
+                                >
+                                  ⚡ Manuell nachrücken
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Historie: Abgelaufene/Abgelehnte/Bestätigte */}
+                  {(() => {
+                    const history = course.waitlist.filter(w => 
+                      w.status === 'bestaetigt' || w.status === 'abgelehnt' || w.status === 'abgelaufen'
+                    );
+                    if (history.length === 0) return null;
+                    return (
+                      <div style={{marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0'}}>
+                        <div style={{fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase'}}>📜 Historie</div>
+                        <div style={{display: 'flex', flexDirection: 'column', gap: 4}}>
+                          {history.map(entry => {
+                            const member = members.find(m => m.id === entry.memberId);
+                            if (!member) return null;
+                            const statusColor = entry.status === 'bestaetigt' ? '#10b981' : entry.status === 'abgelehnt' ? '#ef4444' : '#94a3b8';
+                            const statusText = entry.status === 'bestaetigt' ? '✓ Bestätigt' : entry.status === 'abgelehnt' ? '✗ Abgelehnt' : '⏰ Abgelaufen';
+                            return (
+                              <div key={entry.memberId + entry.timestamp} style={{
+                                display: 'flex', justifyContent: 'space-between',
+                                padding: '6px 10px', fontSize: 12, color: '#64748b',
+                                background: '#f8fafc', borderRadius: 6
+                              }}>
+                                <span>{member.vorname} {member.nachname}</span>
+                                <span style={{color: statusColor, fontWeight: 700}}>{statusText}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {activeTab === 'mitarbeiter' && (
@@ -643,7 +881,7 @@ function AdminDashboard() {
                       <div style={{fontWeight: 700, marginBottom: 6, fontSize: 12}}>📋 Einsätze:</div>
                       {trainerCourses.map(c => (
                         <div key={c.id} className="course-assignment-item">
-                          <span>📅 {formatDate(c.datum)} {c.time}</span><strong>{c.title}</strong>
+                          <span>📅 {formatDate(c.datum)} {c.time}-{calculateEndTime(c.time, c.dauerStunden || 1)}</span><strong>{c.title}</strong>
                         </div>
                       ))}
                     </div>
@@ -756,7 +994,7 @@ function AdminDashboard() {
                 <option value="Trainer">Trainer</option><option value="Rezeption">Rezeption</option><option value="Management">Management</option>
               </select>
             </div>
-            <div className="form-group"><label className="form-label">🎯 Qualifikationen (Komma-getrennt)</label>
+            <div className="form-group"><label className="form-label">🎯 Qualifikationen</label>
               <input className="form-input" value={(editTrainerForm.qualifikationen || []).join(', ')}
                 onChange={e => setEditTrainerForm({...editTrainerForm, qualifikationen: e.target.value.split(',').map((q: string) => q.trim()).filter((q: string) => q)})}
                 placeholder="z.B. Yoga, Pilates, HIIT" />
@@ -803,9 +1041,9 @@ function TrainerDashboard() {
         updates.status = 'GESPERRT';
         updates.sperr_begruendung = '3x No-Show';
         updates.sperr_bis = sperrBis.toLocaleDateString('de-DE');
-        alert(`⛔ SPERRE AKTIVIERT!\n\n${member.vorname} ${member.nachname} hat 3x unentschuldigt gefehlt.\n\n→ Account gesperrt bis: ${updates.sperr_bis}\n→ Keine Kursbuchungen möglich\n\n(Laut Spec 4.3: Keine Gebühr bei No-Show)`);
+        alert(`⛔ SPERRE AKTIVIERT!\n\n${member.vorname} ${member.nachname} wurde nach 3x No-Show für 14 Tage gesperrt!`);
       } else {
-        alert(`⚠️ No-Show erfasst\n\nMitglied: ${member.vorname} ${member.nachname}\nKurs: ${course.title}\n\nNo-Show-Zähler: ${newCount}/3\n${3 - newCount}x No-Show noch bis zur Sperre (14 Tage)\n\n(Laut Spec 4.3: Keine Gebühr bei No-Show)`);
+        alert(`⚠️ No-Show erfasst\n\nMitglied: ${member.vorname} ${member.nachname}\n\nNo-Show-Zähler: ${newCount}/3\n${3 - newCount}x noch bis zur Sperre (14 Tage)`);
       }
       
       updateMember(memberId, updates);
@@ -838,14 +1076,6 @@ function TrainerDashboard() {
         <div>{currentTrainer.qualifikationen.map(q => <span key={q} className="qualification-badge">{q}</span>)}</div>
       </div>
 
-      <div style={{background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: 16, marginBottom: 24, fontSize: 13, color: '#1e40af'}}>
-        <strong>📋 Spec 4.3 - No-Show-Regelung:</strong><br/>
-        • Trainer hakt Anwesenheit live ab<br/>
-        • 3x No-Show hintereinander = 14 Tage Sperre<br/>
-        • ❌ Keine Gebühr bei No-Show (nur Sperre)<br/>
-        • 💰 5€ Gebühr nur bei Stornierung weniger als 2h vor Kurs (Spec 4.4)
-      </div>
-
       {!selectedCourse ? (
         <>
           <h2 className="section-title">📅 Deine Kurse</h2>
@@ -872,9 +1102,6 @@ function TrainerDashboard() {
                           <span style={{color: '#ef4444'}}>✗ {stats.noShow} No-Show</span>
                           <span style={{color: '#64748b'}}>○ {stats.offen} Offen</span>
                         </div>
-                        <div style={{marginTop: 8, height: 4, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden'}}>
-                          <div style={{height: '100%', width: `${stats.total > 0 ? (stats.da / stats.total) * 100 : 0}%`, background: '#10b981'}}></div>
-                        </div>
                       </div>
                     </div>
                     <div className="course-footer">
@@ -890,7 +1117,7 @@ function TrainerDashboard() {
         </>
       ) : (
         <>
-          <button onClick={() => setSelectedCourseId(null)} style={{marginBottom: 20, padding: '8px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', fontWeight: 600}}>← Zurück zu meinen Kursen</button>
+          <button onClick={() => setSelectedCourseId(null)} style={{marginBottom: 20, padding: '8px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', fontWeight: 600}}>← Zurück</button>
           <div className="members-table">
             <div className="course-header">
               <div>
@@ -903,75 +1130,48 @@ function TrainerDashboard() {
               </div>
               <div style={{textAlign: 'right'}}>
                 <div style={{fontWeight: 600}}>{selectedCourse.booked}/{selectedCourse.max} gebucht</div>
-                <div style={{fontSize: 12, color: '#64748b', marginTop: 4}}>
-                  {(() => {
-                    const stats = getAttendanceStats(selectedCourse);
-                    return `${stats.da + stats.noShow}/${stats.total} erfasst`;
-                  })()}
-                </div>
               </div>
             </div>
             <div className="course-body">
-              <div className="course-body-title">👥 Teilnehmer-Liste - Anwesenheit erfassen</div>
+              <div className="course-body-title">👥 Teilnehmer-Liste</div>
               {selectedCourse.booked === 0 ? (
                 <p style={{color: '#64748b', textAlign: 'center', padding: 20}}>Keine Teilnehmer gebucht.</p>
               ) : (
-                <>
-                  <div style={{background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: '#92400e'}}>
-                    💡 <strong>Hinweis:</strong> Hake die Anwesenheit live während des Kurses ab. Nach 3x No-Show wird das Mitglied automatisch für 14 Tage gesperrt (Spec 4.3).
-                  </div>
-                  {Array.from({length: selectedCourse.booked}).map((_, idx) => {
-                    const member = members[idx % members.length];
-                    const status = selectedCourse.attendance?.[member.id];
-                    return (
-                      <div key={idx} className={`attendance-item ${status === 'DA' ? 'attendance-present' : status === 'NO_SHOW' ? 'attendance-noshow' : ''}`}
-                        style={status === 'NO_SHOW' ? {background: '#fef2f2', borderColor: '#fecaca'} : {}}>
-                        <div className="attendance-left">
-                          <div className={`check-box ${status === 'DA' ? 'checked' : ''}`}
-                            style={status === 'NO_SHOW' ? {background: '#ef4444', borderColor: '#ef4444'} : {}}>
-                            {status === 'DA' && <Icons.Check />}
-                            {status === 'NO_SHOW' && <span style={{color: 'white', fontWeight: 700}}>✗</span>}
-                          </div>
-                          <div>
-                            <div style={{fontWeight: 600}}>
-                              {member.vorname} {member.nachname}
-                              {(member.noShowCount || 0) >= 2 && (
-                                <span style={{marginLeft: 8, fontSize: 11, color: '#dc2626', fontWeight: 700}}>⚠️ {member.noShowCount}/3 No-Shows</span>
-                              )}
-                            </div>
-                            <div style={{fontSize: 12, color: '#64748b'}}>
-                              {member.tarif}
-                              {(member.noShowCount || 0) > 0 && <span style={{marginLeft: 8}}>• No-Shows: {member.noShowCount}/3</span>}
-                            </div>
-                          </div>
+                Array.from({length: selectedCourse.booked}).map((_, idx) => {
+                  const member = members[idx % members.length];
+                  const status = selectedCourse.attendance?.[member.id];
+                  return (
+                    <div key={idx} className={`attendance-item ${status === 'DA' ? 'attendance-present' : ''}`}
+                      style={status === 'NO_SHOW' ? {background: '#fef2f2', borderColor: '#fecaca'} : {}}>
+                      <div className="attendance-left">
+                        <div className={`check-box ${status === 'DA' ? 'checked' : ''}`}
+                          style={status === 'NO_SHOW' ? {background: '#ef4444', borderColor: '#ef4444'} : {}}>
+                          {status === 'DA' && <Icons.Check />}
+                          {status === 'NO_SHOW' && <span style={{color: 'white', fontWeight: 700}}>✗</span>}
                         </div>
-                        <div style={{display: 'flex', gap: 8}}>
-                          {!status && (
-                            <>
-                              <button className="btn-success" onClick={() => markAttendance(selectedCourse.id, member.id, 'DA')}>✓ Da</button>
-                              <button className="btn-danger" onClick={() => markAttendance(selectedCourse.id, member.id, 'NO_SHOW')}>✗ No-Show</button>
-                            </>
-                          )}
-                          {status === 'DA' && <span className="status-badge active">✓ Anwesend</span>}
-                          {status === 'NO_SHOW' && <span className="status-badge" style={{background: '#fef2f2', color: '#dc2626'}}>✗ No-Show</span>}
+                        <div>
+                          <div style={{fontWeight: 600}}>
+                            {member.vorname} {member.nachname}
+                            {(member.noShowCount || 0) >= 2 && (
+                              <span style={{marginLeft: 8, fontSize: 11, color: '#dc2626', fontWeight: 700}}>⚠️ {member.noShowCount}/3</span>
+                            )}
+                          </div>
+                          <div style={{fontSize: 12, color: '#64748b'}}>{member.tarif}</div>
                         </div>
                       </div>
-                    );
-                  })}
-                  {(() => {
-                    const stats = getAttendanceStats(selectedCourse);
-                    if (stats.da + stats.noShow === stats.total) {
-                      return (
-                        <div style={{marginTop: 20, padding: 16, background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 12, textAlign: 'center'}}>
-                          <div style={{fontSize: 24, marginBottom: 4}}>✅</div>
-                          <div style={{fontWeight: 700, color: '#065f46'}}>Anwesenheit vollständig erfasst!</div>
-                          <div style={{fontSize: 13, color: '#065f46', marginTop: 4}}>{stats.da} anwesend • {stats.noShow} No-Shows</div>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-                </>
+                      <div style={{display: 'flex', gap: 8}}>
+                        {!status && (
+                          <>
+                            <button className="btn-success" onClick={() => markAttendance(selectedCourse.id, member.id, 'DA')}>✓ Da</button>
+                            <button className="btn-danger" onClick={() => markAttendance(selectedCourse.id, member.id, 'NO_SHOW')}>✗ No-Show</button>
+                          </>
+                        )}
+                        {status === 'DA' && <span className="status-badge active">✓ Anwesend</span>}
+                        {status === 'NO_SHOW' && <span className="status-badge" style={{background: '#fef2f2', color: '#dc2626'}}>✗ No-Show</span>}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
@@ -981,12 +1181,55 @@ function TrainerDashboard() {
   );
 }
 
-// ===== 4. MITGLIED =====
+// ===== 4. MITGLIED MIT WARTESLISTE =====
+// ===== 4. MITGLIED MIT WARTESLISTE + ENDZEIT + POPUP-FIX =====
 function MemberDashboard() {
-  const { currentUser, setCurrentUser, courses, updateCourse, updateMember, addBooking, removeBooking, getMemberBookings, videos } = useApp();
+  const { currentUser, setCurrentUser, courses, updateCourse, updateMember, addBooking, removeBooking, getMemberBookings, videos, joinWaitlist, leaveWaitlist, getWaitlistPosition, confirmNachrueck, declineNachrueck, members } = useApp();
   const [activeTab, setActiveTab] = useState<'kurse' | 'videos' | 'profil'>(
     currentUser?.tarif === 'ONLINE' ? 'videos' : 'kurse'
   );
+  const [, forceUpdate] = useState(0);
+  const [showNachrueckPopup, setShowNachrueckPopup] = useState(false);
+
+  // Helper: Endzeit berechnen
+  const calculateEndTime = (startTime: string, duration: number): string => {
+    if (!startTime) return '';
+    const [h, m] = startTime.split(':').map(Number);
+    const endMin = h * 60 + m + (duration * 60);
+    const endH = Math.floor(endMin / 60) % 24;
+    const endM = endMin % 60;
+    return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+  };
+
+  // Timer für Nachrück-Popup (jede Sekunde aktualisieren)
+  useEffect(() => {
+    const interval = setInterval(() => forceUpdate(x => x + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // NEU: Popup anzeigen wenn Nachrückung aktiv ist
+   // NEU: Popup anzeigen wenn Nachrückung aktiv ist
+  useEffect(() => {
+    if (!currentUser) {
+      setShowNachrueckPopup(false);
+      return;
+    }
+    
+    // Prüfe ob es einen Nachrück-Vorschlag gibt (ohne Variable neu zu definieren)
+    const hasNachrueck = courses.some(c => {
+      const entry = c.waitlist.find(w => 
+        w.memberId === currentUser.id && 
+        w.status === 'nachgerueckt' &&
+        w.nachrueckZeit &&
+        (Date.now() - w.nachrueckZeit < 60 * 60 * 1000)
+      );
+      return entry;
+    });
+    
+    if (hasNachrueck && !showNachrueckPopup) {
+      setShowNachrueckPopup(true);
+    }
+  }, [currentUser, courses]);
 
   if (!currentUser) return <LoginScreen />;
 
@@ -1015,6 +1258,26 @@ function MemberDashboard() {
     });
   };
 
+  // Gibt es einen aktiven Nachrück-Vorschlag?
+  const nachrueckVorschlag = courses.find(c => {
+    const entry = c.waitlist.find(w => 
+      w.memberId === currentUser.id && 
+      w.status === 'nachgerueckt' &&
+      w.nachrueckZeit &&
+      (Date.now() - w.nachrueckZeit < 60 * 60 * 1000)
+    );
+    return entry;
+  });
+  const nachrueckEntry = nachrueckVorschlag?.waitlist.find(w => 
+    w.memberId === currentUser.id && 
+    w.status === 'nachgerueckt'
+  );
+  const timeLeft = nachrueckEntry?.nachrueckZeit 
+    ? Math.max(0, 60 * 60 * 1000 - (Date.now() - nachrueckEntry.nachrueckZeit))
+    : 0;
+  const minutes = Math.floor(timeLeft / 60000);
+  const seconds = Math.floor((timeLeft % 60000) / 1000);
+
   const handleBook = (id: string) => {
     const kurs = courses.find(c => c.id === id);
     if (!kurs) return;
@@ -1041,9 +1304,27 @@ function MemberDashboard() {
     }
     addBooking(currentUser.id, id);
     updateCourse(id, { booked: kurs.booked + 1 });
+    alert(`✅ "${kurs.title}" erfolgreich gebucht!\n\n📅 ${kurs.datum}\n🕐 ${kurs.time} - ${calculateEndTime(kurs.time, kurs.dauerStunden || 1)}`);
   };
 
-  const handleCancel = (id: string) => {
+  const handleWaitlistClick = (courseId: string) => {
+    const position = getWaitlistPosition(currentUser.id, courseId);
+    if (position > 0) {
+      if (confirm(`Du bist auf Position ${position} der Warteliste.\n\nVon Warteliste entfernen?`)) {
+        leaveWaitlist(currentUser.id, courseId);
+        alert('✅ Von Warteliste entfernt.');
+      }
+      return;
+    }
+    const result = joinWaitlist(currentUser.id, courseId);
+    if (result.success) {
+      alert(`✅ ${result.message}\n\nDu wirst benachrichtigt wenn ein Platz frei wird.\nDu hast dann 1 Stunde Zeit zu bestätigen.`);
+    } else {
+      alert(`❌ ${result.message}`);
+    }
+  };
+
+   const handleCancel = (id: string) => {
     const course = courses.find(c => c.id === id);
     if (!course) return;
     const kursZeit = new Date(`${course.datum}T${course.time}`);
@@ -1054,11 +1335,44 @@ function MemberDashboard() {
       gebuehr = 5;
       if (!confirm(`⚠️ Stornierung weniger als 2 Stunden vor Kursbeginn!\n\n5€ Gebühr anfallen.\n\nFortfahren?`)) return;
       updateMember(currentUser.id, { offeneGebuehren: (currentUser.offeneGebuehren || 0) + 5 });
+    } else {
+      if (!confirm(`Kurs "${course.title}" wirklich stornieren?`)) return;
     }
     removeBooking(currentUser.id, id);
-    updateCourse(id, { booked: Math.max(0, course.booked - 1) });
+    
+    // ✅ FIX: Alle Updates in EINEM updateCourse Aufruf kombinieren!
+    const nextWaitlistEntry = course.waitlist.find(w => w.status === 'waiting');
+    const updates: any = { 
+      booked: Math.max(0, course.booked - 1) 
+    };
+    
+    if (nextWaitlistEntry) {
+      const newWaitlist = course.waitlist.map(w => 
+        w.memberId === nextWaitlistEntry.memberId 
+          ? {...w, status: 'nachgerueckt' as const, nachrueckZeit: Date.now()}
+          : w
+      );
+      updates.waitlist = newWaitlist;
+    }
+    
+    // Nur EIN updateCourse Aufruf mit allen Änderungen!
+    updateCourse(id, updates);
+    
+    // Info-Meldung
+    if (nextWaitlistEntry) {
+      const nextMember = members.find(m => m.id === nextWaitlistEntry.memberId);
+      if (nextMember) {
+        if (gebuehr > 0) {
+          alert(`✅ Kurs storniert. 💰 5€ Stornogebühr belastet.\n\n📋 ${nextMember.vorname} ${nextMember.nachname} wurde benachrichtigt (1h Frist).`);
+        } else {
+          alert(`✅ Kurs storniert.\n\n📋 ${nextMember.vorname} ${nextMember.nachname} wurde benachrichtigt (1h Frist).`);
+        }
+        return;
+      }
+    }
+    
     if (gebuehr > 0) alert(`✅ Kurs storniert. 💰 5€ Stornogebühr belastet.`);
-    else alert(`✅ Kurs storniert (kostenlos).`);
+    else alert(`✅ Kurs storniert.`);
   };
 
   const handleLogout = () => setCurrentUser(null);
@@ -1082,6 +1396,40 @@ function MemberDashboard() {
         </div>
         <button onClick={handleLogout} style={{padding: '8px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer'}}>🚪 Abmelden</button>
       </div>
+
+      {/* Nachrück-Popup mit Timer */}
+      {showNachrueckPopup && nachrueckVorschlag && nachrueckEntry && (
+        <div className="nachrück-overlay">
+          <div className="nachrück-box">
+            <div className="nachrück-icon">🎉</div>
+            <h2 className="nachrück-title">Platz frei geworden!</h2>
+            <p className="nachrück-text">
+              Du wurdest nachgerückt für:<br/>
+              <b style={{fontSize: 20, color: '#4f46e5'}}>{nachrueckVorschlag.title}</b><br/>
+              📅 {nachrueckVorschlag.datum}<br/>
+              🕐 {nachrueckVorschlag.time} - {calculateEndTime(nachrueckVorschlag.time, nachrueckVorschlag.dauerStunden || 1)}<br/>
+              🏢 {nachrueckVorschlag.room}
+            </p>
+            <div className="timer-display">
+              {minutes}:{String(seconds).padStart(2, '0')}
+            </div>
+            <div className="timer-label">⏰ Zeit zum Bestätigen</div>
+            <div className="nachrück-buttons">
+              <button className="btn-confirm" onClick={() => {
+                confirmNachrueck(currentUser.id, nachrueckVorschlag.id);
+                setShowNachrueckPopup(false);
+                alert(`✅ Platz bestätigt!\n\nDu bist jetzt für "${nachrueckVorschlag.title}" gebucht.`);
+              }}>✓ Bestätigen</button>
+              <button className="btn-decline" onClick={() => {
+                if (confirm('Wirklich ablehnen? Der Platz geht an den nächsten auf der Warteliste.')) {
+                  declineNachrueck(currentUser.id, nachrueckVorschlag.id);
+                  setShowNachrueckPopup(false);
+                }
+              }}>✗ Ablehnen</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {currentUser.status === 'GESPERRT' && (
         <div className="blocked-banner">
@@ -1113,7 +1461,7 @@ function MemberDashboard() {
           <div className="profile-value">{currentUser.status}</div>
         </div>
         <div className="profile-card">
-          <div className="profile-label">{currentTarif === 'BASIC' ? 'Buchungen (diese Woche)' : 'Buchungen'}</div>
+          <div className="profile-label">{currentTarif === 'BASIC' ? 'Buchungen (Woche)' : 'Buchungen'}</div>
           <div className="profile-value">
             {currentTarif === 'BASIC' ? <span style={{color: buchungenDieseWoche.length >= 2 ? '#dc2626' : '#0f172a'}}>{buchungenDieseWoche.length}/2</span> : bookings.length}
           </div>
@@ -1149,7 +1497,9 @@ function MemberDashboard() {
                       <div className="booking-icon"><Icons.Check /></div>
                       <div>
                         <div className="member-name">{c.title}</div>
-                        <div className="member-info">📅 {c.datum} • 🕐 {c.time} • 🏢 {c.room}</div>
+                        <div className="member-info">
+                          📅 {c.datum} • 🕐 {c.time} - {calculateEndTime(c.time, c.dauerStunden || 1)} • 🏢 {c.room}
+                        </div>
                       </div>
                     </div>
                     <button className="btn-danger" onClick={() => handleCancel(id)}>Stornieren</button>
@@ -1168,6 +1518,8 @@ function MemberDashboard() {
                 const isBooked = bookings.includes(c.id);
                 const isFull = c.booked >= c.max && !isBooked;
                 const freeSlots = c.max - c.booked;
+                const waitlistPosition = getWaitlistPosition(currentUser.id, c.id);
+                const onWaitlist = waitlistPosition > 0;
                 let basicLimitErreicht = false;
                 if (currentTarif === 'BASIC' && !isBooked) {
                   const kursDatum = new Date(c.datum);
@@ -1187,13 +1539,26 @@ function MemberDashboard() {
                     <div className="course-content">
                       <h3 className="course-title">{c.title} <span className="course-type-badge">{c.typ}</span></h3>
                       <div className="course-detail">📅 {c.datum}</div>
-                      <div className="course-detail"><Icons.Clock /> {c.time}</div>
+                      <div className="course-detail">
+                        <Icons.Clock /> {c.time} - {calculateEndTime(c.time, c.dauerStunden || 1)}
+                        <span style={{marginLeft: 8, fontSize: 11, color: '#64748b'}}>({c.dauerStunden || 1}h)</span>
+                      </div>
                       <div className="course-detail"><Icons.Location /> {c.room}</div>
                       <div className="course-detail"><Icons.User /> {c.trainer}</div>
+                      {onWaitlist && (
+                        <div style={{
+                          marginTop: 10, padding: '6px 10px', background: '#fef3c7',
+                          border: '1px solid #fde68a', borderRadius: 8,
+                          fontSize: 12, color: '#92400e', fontWeight: 700
+                        }}>
+                          📋 Du bist auf Position {waitlistPosition} der Warteliste
+                        </div>
+                      )}
                     </div>
                     <div className="course-footer">
                       {isBooked ? <button className="btn-booked" disabled>✓ Gebucht</button> :
-                       isFull ? <button className="waitlist-btn">Auf Warteliste</button> :
+                       onWaitlist ? <button className="waitlist-btn" onClick={() => handleWaitlistClick(c.id)}>📋 Von Warteliste entfernen (#{waitlistPosition})</button> :
+                       isFull ? <button className="waitlist-btn" onClick={() => handleWaitlistClick(c.id)}>📋 Auf Warteliste</button> :
                        basicLimitErreicht ? <button className="btn-book" disabled style={{background: '#e2e8f0', color: '#94a3b8', cursor: 'not-allowed'}}>🔒 Wochen-Limit</button> :
                        <button className="btn-book" onClick={() => handleBook(c.id)}>Jetzt buchen</button>}
                     </div>
@@ -1219,7 +1584,7 @@ function MemberDashboard() {
               <h2 className="section-title">📺 Live-Streams</h2>
               <div style={{background: 'linear-gradient(135deg, #dc2626, #ef4444)', color: 'white', padding: 24, borderRadius: 16, marginBottom: 24, position: 'relative', overflow: 'hidden'}}>
                 <div style={{position: 'absolute', top: 16, right: 16, background: 'white', color: '#dc2626', padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6}}>
-                  <span style={{width: 8, height: 8, background: '#dc2626', borderRadius: '50%', animation: 'pulse-bg 1.5s infinite'}}></span>
+                  <span style={{width: 8, height: 8, background: '#dc2626', borderRadius: '50%'}}></span>
                   LIVE
                 </div>
                 <div style={{fontSize: 48, marginBottom: 8}}>🧘‍♀️</div>
@@ -1316,6 +1681,7 @@ function MemberDashboard() {
   );
 }
 
+
 // ===== 5. GAST =====
 function GuestDashboard() {
   const { addMember } = useApp();
@@ -1355,7 +1721,6 @@ function GuestDashboard() {
             <button className="btn-primary" style={{flex: 1}} onClick={() => { setSuccess(false); setForm({ vorname: '', nachname: '', email: '', geburtsdatum: '', foto: '' }); }}>📝 Neue Registrierung</button>
             <button className="btn-secondary" style={{flex: 1, margin: 0}} onClick={() => setSuccess(false)}>← Zurück</button>
           </div>
-          <p style={{fontSize: 12, color: '#64748b', marginTop: 16}}>💡 Wechsle oben zu <b>"Mitglied"</b> um dich einzuloggen!</p>
         </div>
       </div>
     );
@@ -1378,26 +1743,21 @@ function GuestDashboard() {
       </div>
       <div className="card" style={{padding: 32}}>
         <h2 style={{fontSize: 22, fontWeight: 700, marginBottom: 8}}>📝 Jetzt registrieren</h2>
-        <p style={{color: '#64748b', marginBottom: 24, fontSize: 14}}>Erstelle deinen Online-Account und starte sofort!</p>
         <form onSubmit={handleRegister}>
           <div className="form-row">
-            <div className="form-group"><label className="form-label">Vorname *</label><input className="form-input" required value={form.vorname} onChange={e => setForm({...form, vorname: e.target.value})} placeholder="z.B. Maria" /></div>
-            <div className="form-group"><label className="form-label">Nachname *</label><input className="form-input" required value={form.nachname} onChange={e => setForm({...form, nachname: e.target.value})} placeholder="z.B. Schmidt" /></div>
+            <div className="form-group"><label className="form-label">Vorname *</label><input className="form-input" required value={form.vorname} onChange={e => setForm({...form, vorname: e.target.value})} /></div>
+            <div className="form-group"><label className="form-label">Nachname *</label><input className="form-input" required value={form.nachname} onChange={e => setForm({...form, nachname: e.target.value})} /></div>
           </div>
-          <div className="form-group"><label className="form-label">📧 E-Mail *</label><input className="form-input" type="email" required value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="deine.email@beispiel.de" /></div>
+          <div className="form-group"><label className="form-label">📧 E-Mail *</label><input className="form-input" type="email" required value={form.email} onChange={e => setForm({...form, email: e.target.value})} /></div>
           <div className="form-group"><label className="form-label">🎂 Geburtsdatum (optional)</label><input className="form-input" type="date" value={form.geburtsdatum} onChange={e => setForm({...form, geburtsdatum: e.target.value})} /></div>
           <div className="form-group">
             <label className="form-label">📸 Foto-URL (optional)</label>
             <input className="form-input" type="text" value={form.foto} onChange={e => setForm({...form, foto: e.target.value})} placeholder="https://i.pravatar.cc/150?u=deinname" />
-            <div style={{fontSize: 11, color: '#64748b', marginTop: 4}}>💡 Tipp: Nutze <a href="https://i.pravatar.cc" target="_blank" style={{color: '#4f46e5'}}>pravatar.cc</a> für Test-Fotos</div>
             {form.foto && (
               <div style={{marginTop: 10, textAlign: 'center'}}>
                 <img src={form.foto} alt="Preview" style={{width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', border: '3px solid #8b5cf6'}} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
               </div>
             )}
-          </div>
-          <div style={{background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 12, padding: 16, marginTop: 16, marginBottom: 16, fontSize: 13, color: '#92400e'}}>
-            💡 <strong>Hinweis:</strong> Für Studio-Tarife (Basic, Plus, Premium) besuche uns bitte persönlich im Studio.
           </div>
           <button type="submit" className="btn-primary" style={{marginTop: 8}}>🚀 Online-Account erstellen</button>
         </form>
